@@ -1,0 +1,55 @@
+params: Mapping[String, Any]
+
+["V $time. minute", 
+player(lambda params: param["player1"]), 
+"vstrelil po nahravce", 
+"$$:player:player2" -> TmplRef("player", lambda params: param["player2"]),
+"gol"
+]
+
+def player(fnc: Callable):
+    // uz byl zmineny?
+    // record new usage
+    return TmplRef("player", lambda params: param["player2"]),
+-------------------------------------------------------------------------
+
+class TemplateHandler:
+	get PlayerTemplates
+		vyber náhodně z "$player.last_name"
+				"$player.first_name $player.last_name"
+				... 
+
+class Constituents
+	List[string/Pythovska Templata/Template]
+
+class Template
+	(type: Types.Template)
+	(subtype: Types.TemplateSubtype)
+	constituents: Constituents
+	id                                  (id -> type/subtype/poradi) př. getType(id=28) = Types.Template.Player
+	msg : MSG
+	+ potřebný konkrétní údaj (hráč má u sebe Player data)
+	
+
+["V $time. minute", 
+get_template(type=Types.Template.PLAYER, subtype: Scorer, msg: goal_message, player=msg.participant)  
+"vstrelil po nahravce", 
+template(type=Types.Template.PLAYER, subtype: Scorer, msg: goal_message, player=msg.assistance) ,
+"gol"
+]
+
+
+["V $time. minute", 
+template1= Template(id= 28, Template(id=52, ["Adam Hložek"]), msg: goal_message, player=msg.participant)  
+"vstrelil po nahravce", 
+template1= Template(id= 28, Template(id=54, ["Stránský"]), msg: goal_message, player=msg.participant)  
+"gol"
+]
+
+Tu Msg bych mohl mít v něčem nad tím - třeba nějaká Sentence 
+
+Potom budu procházet tu templatu a ty constituents jen poskládám za sebe (string trivka, u template vytahnu cinstituents, u Pythonovsskych Template, bych mohl držet nějaký list k nim a pak to jen sázet z toho listu).
+Např. "V $time. minute dal gol hrac tymu $team_name" ["time", "team_name"]
+ 
+
+Následně alternuju ty věty (mohu vybrat, co se opakuje pomocí frekvencí)
