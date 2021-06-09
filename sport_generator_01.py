@@ -7,7 +7,7 @@ from random import Random
 import os
 import requests
 from enum import Enum
-from typing import List, NamedTuple
+from typing import List, NamedTuple, Dict
 from string import Template as Tmpl
 from dataclasses import dataclass
 from copy import deepcopy
@@ -54,9 +54,9 @@ class Types:
     class Message(Enum):
         GOAL = 0
         PENALTY_KICK_MISSED = 1
-        CARD = 3
-        SUBSTITUTION = 4
-        RESULT = 5
+        CARD = 2
+        SUBSTITUTION = 3
+        RESULT = 4
 
     class MessageSubtype(Enum):
         WIN = 0,
@@ -69,6 +69,27 @@ class Types:
         PENALTY = 7,
         SOLO_PLAY = 8,
         OWN_GOAL = 9
+
+    class Morph:
+        class Case(Enum):
+            Nom = 1,
+            Gen = 2,
+            Dat = 3,
+            Acc = 4,
+            Vok = 5,
+            Loc = 6,
+            Ins = 7
+
+        class Tense(Enum):
+            Past = 0,
+            Pres = 1,
+            Fut = 2
+
+    class Constituent(Enum):
+        ENTITY = 0,
+        VERB = 1,
+        WORD = 2
+
 
 
 @dataclass(frozen=True)
@@ -537,7 +558,6 @@ class Messages:
 
     @dataclass(frozen=True)
     class MissedPenalty(Message):
-        type: Types.Message
         participant: Player
         team: Team
         time: Time
@@ -605,6 +625,382 @@ class DocumentPlanner:
     def _plan_body(match_data: MatchData) -> List[Messages]:
         return [DocumentPlanner._plan_incident_msg(inc) for inc in match_data.incidents]
 
+
+# --------------------------------------------------------------------------------------------------------------------
+# New Template Scheme **
+
+class MorphParams:
+    case: Types.Morph.Case
+    tense: Types.Morph.Tense
+    ref: None
+    agr: None
+
+    def __init__(self, string_id: str):
+        params = MorphParams.getMorphParams(string_id)
+        self.case = params[0]
+        self.tense = params[1]
+        self.ref = params[2]
+        self.agr = params[3]
+
+    @staticmethod
+    def getMorphParams(string_id: str) -> (Types.Morph.Case, Types.Morph.Tense, str, str):
+        [case_id, tense_id, ref_id, agr_id] = string_id.split('-')
+
+        case = None if case_id == "." else Types.Morph.Case.value = int(case_id)
+        tense = None if tense_id == "." else Types.Morph.Tense.value = int(tense_id)
+        ref = None if ref_id == "." else ref_id
+        agr = None if agr_id == "." else agr_id
+
+        return case, tense, ref, agr
+
+@dataclass(frozen=True)
+class ConstituentTemplates:
+    templates: Dict[str, str]
+
+
+class Template:
+    id: str
+    msg: Message
+    morph_params: MorphParams
+    data: None
+    string: None
+
+    def __init__(self, id: str, msg: Message, morph_params: str, data, string):
+        self.id = id
+        self.msg = msg
+        self.morph_params = None if morph_params else MorphParams(morph_params)
+        self.data = data
+        self.string = string
+
+    def lexicalize(self):
+        # TO DO ->
+        # 1: z idecka a dat vyberu string pro vetny clen
+        # 2: clen upravim podle morph_params pro geneeu ->  dosadim do stringu
+
+
+class Sentence:
+    id: str
+    constituents: List[str, Template]
+
+    def __init__(self, msg: Message):
+        s = Sentence.get_sentence(msg)
+        self.id = s[0]
+        self.constituents = s[1]
+
+    @staticmethod
+    def get_sentence(msg: Message) -> (str, List[str,Template]):
+        def get_sentence_result(msg: Messages.Result) -> (str, List[str,Template]):
+            # id type: result = 'r'
+            # id subtypes: win = 'w' / draw = 'd' / loss = 'l'
+
+            sentences = List[(str, List[str,Template])]
+            if msg.score.result == Types.Result.WIN:
+                sentences.append(('s_r_w_1',[
+                    Template(id='e-team'  , msg=msg, morph_params='1-.-1-.', data=msg.team_home , string=None),
+                    Template(id='v-win'   , msg=msg, morph_params='.-0-.-1', data=None          , string=None),
+                    Template(id='e-team"' , msg=msg, morph_params='4-.-.-.', data=msg.team_away , string=None),
+                    Template(id='e-score', msg=msg, morph_params='4-.-.-.', data=msg.score, string=None),
+                ]))
+            elif msg.score.result == Types.Result.DRAW:
+                sentences.append(('s_r_d_1', [
+                    Template(id='e-team', msg=msg, morph_params='1-.-1-.', data=msg.team_home , string=None),
+                    Template(id='v-draw', msg=msg, morph_params='.-0-.-1', data=None          , string=None),
+                    Template(id='e-team', msg=msg, morph_params='7-.-.-.', data=msg.team_away , string=None),
+                    Template(id='e-score', msg=msg, morph_params='4-.-.-.', data=msg.score, string=None),
+
+                ]))
+            else: # msg.score.result == Types.Result.LOSS:
+                sentences.append(('s_r_l_1', [
+                    Template(id='e-team', msg=msg, morph_params='1-.-1-.', data=msg.team_home , string=None),
+                    Template(id='v-loss', msg=msg, morph_params='.-0-.-1', data=None          , string=None),
+                    Template(id='e-team', msg=msg, morph_params='4-.-.-.', data=msg.team_away , string=None),
+                    Template(id='e-score', msg=msg, morph_params='4-.-.-.', data=msg.score     , string=None),
+                ]))
+
+            r = Random()
+            r.seed(10)
+            return r.choice(sentences)
+
+        def get_sentence_goal(msg: Messages.Goal) -> (str, List[str,Template]):
+            # id type: goal = 'r'
+            # id subtypes: solo play = 's' / own goal = 'o' / penalty = 'p' / assistance = 'a'
+
+            sentences = List[(str, List[str,Template])]
+            if msg.goal_type == Types.Goal.SOLO_PLAY:
+                sentences.append(('s_g_s_1', [
+                    Template(id='e-time'  , msg=msg, morph_params= ''      , data=msg.time          , string=None),
+                    Template(id='v-goal'  , msg=msg, morph_params='.-0-.-.', data=None              , string=None),
+                    Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant   , string=None),
+                    Template(id='w-goal'  , msg=msg, morph_params='4-.-.-.', data=None              , string=None),
+                ]))
+                sentences.append(('s_g_s_2', [
+                    Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
+                    Template(id='v-goal', msg=msg, morph_params='.-0-.-.', data=None, string=None),
+                    Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant, string=None),
+                    Template(id='w-goal', msg=msg, morph_params='4-.-.-.', data=None, string=None),
+                    "a",
+                    Template(id='v-score_change', msg=msg, morph_params='', data=None, string=None),
+                    Template(id='e-score', msg=msg, morph_params='4-.-.-.', data=msg.current_score, string=None),
+                ]))
+
+            elif msg.goal_type == Types.Goal.ASSITANCE:
+                sentences.append(('s_g_a_1', [
+                    Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
+                    Template(id='v-goal', msg=msg, morph_params='.-0-.-.', data=None, string=None),
+                    Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant, string=None),
+                    "po",
+                    Template(id='w-assistance', msg=msg, morph_params='6-.-.-', data=None, string=None),
+                    Template(id='e-player', msg=msg, morph_params='3-.-.-.', data=msg.assistance, string=None),
+                    Template(id='w-goal', msg=msg, morph_params='4-.-.-.', data=None, string=None)
+                ]))
+            elif msg.goal_type == Types.Goal.PENALTY:
+                sentences.append(('s_g_p_1', [
+                    Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
+                    Template(id='v-penalty', msg=msg, morph_params='.-0-.-.', data=None, string=None),
+                    Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant, string=None),
+                    Template(id='w-penalty', msg=msg, morph_params='4-.-.-.', data=None, string=None),
+                    ""
+                ]))
+            elif msg.goal_type == Types.Goal.OWN_GOAL:
+                sentences.append(('s_g_p_1', [
+                    Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
+                    "si dal",
+                    Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant, string=None),
+                    Template(id='w-own_goal', msg=msg, morph_params='4-.-.-.', data=None, string=None),
+                ]))
+
+            r = Random()
+            r.seed(10)
+            return r.choice(sentences)
+
+        def get_sentence_substitution(msg: Messages.Substitution) -> (str, List[str,Template]):
+            # id type: substitution = 's'
+
+            sentences = List[(str, List[str,Template])]
+
+            sentences.append(('s_s_1', [
+                Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
+                Template(id='v-substitution', msg=msg, morph_params='.-0-.-.', data=None, string=None),
+                Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant_in, string=None),
+                "za",
+                Template(id='e-player', msg=msg, morph_params='-.-.-.', data=msg.participant_out, string=None),
+            ]))
+            sentences.append(('s_s_2', [
+                Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
+                Template(id='v-substitution', msg=msg, morph_params='.-0-.-.', data=None, string=None),
+                Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant_in, string=None),
+                Template(id='e-player', msg=msg, morph_params='4.-.-.', data=msg.participant_out, string=None),
+            ]))
+
+            r = Random()
+            r.seed(10)
+            return r.choice(sentences)
+
+        def get_sentence_card(msg: Messages.Card) -> (str, List[str,Template]):
+            # id type: card = 'c'
+            # id subtypes: red_auto = 'a' / red_instant = 'r' / yellow = 'y'
+
+            sentences = List[(str, List[str, Template])]
+            if msg.card_type == Types.Card.RED_AUTO:
+                sentences.append(('s_g_s_1', [
+                    Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
+                    Template(id='v-card', msg=msg, morph_params='.-0-.-.', data=None, string=None),
+                    Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant, string=None),
+                    Template(id='w-redcard', msg=msg, morph_params='4-.-.-.', data= None, string= None)
+                ]))
+            elif msg.card_type == Types.Card.RED_INSTANT:
+                sentences.append(('s_g_s_1', [
+                    Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
+                    Template(id='v-card', msg=msg, morph_params='.-0-.-.', data=None, string=None),
+                    Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant, string=None),
+                    "druhou",
+                    Template(id='w-yellowcard', msg=msg, morph_params='4-.-.-.', data=None, string=None),
+                    "a tím pro něj zápas skončil"
+                ]))
+            else:  # msg.card_type == Types.Card.YELLOW:
+                sentences.append(('s_g_s_1', [
+                    Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
+                    Template(id='v-card', msg=msg, morph_params='.-0-.-.', data=None, string=None),
+                    Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant, string=None),
+                    Template(id='w-yellowcard', msg=msg, morph_params='4-.-.-.', data=None, string=None)
+                ]))
+
+            r = Random()
+            r.seed(10)
+            return r.choice(sentences)
+
+        def get_sentence_missed_penalty(msg: Messages.MissedPenalty) -> (str, List[str,Template]):
+            # id type: missed penalty = 'm'
+
+            sentences = List[(str, List[str,Template])]
+
+            sentences.append(('s_m_1', [
+                Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
+                Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant_in, string=None),
+                Template(id='v-failed_penalty', msg=msg, morph_params='.-0-.-.', data=msg.time, string=None),
+                Template(id='w-penalty', msg=msg, morph_params='-.-.-.', data=msg.participant_out, string=None)
+            ]))
+
+
+            r = Random()
+            r.seed(10)
+            return r.choice(sentences)
+
+        if msg.type == Messages.Result:
+            return get_sentence_result(msg)
+        elif msg.type == Messages.Goal:
+            return get_sentence_goal(msg)
+        elif msg.type == Messages.Substitution:
+            return get_sentence_substitution(msg)
+        elif msg.type == Messages.Card:
+            return get_sentence_card(msg)
+        elif msg.type == Messages.MissedPenalty:
+            return get_sentence_missed_penalty(msg)
+        else:
+            print("Wrong types")
+            return None
+
+    def lexicalize(self):
+        for tmp in self.constituents:
+            if tmp is Template:
+                tmp.lexicalize()
+
+class Lexicalizer:
+
+    @staticmethod
+    def lexicalize(doc_plan: DocumentPlan, match_data: MatchData) -> (str, List[str]):
+
+        title = Lexicalizer._lexicalize_message(doc_plan.title)
+        body = [Lexicalizer._lexicalize_message(msg) for msg in doc_plan.body]
+        return title, body
+
+    @staticmethod
+    def _lexicalize_message(msg: Messages) -> str:
+        sentence = Sentence(msg)
+        sentence.lexicalize()
+        # sentence.alternate()
+        return sentence.get_string()
+
+# --------------------------------------------------------------------------------------------------------------------
+# Realization of str from Lexicalizer
+
+
+class Realizer:
+    @staticmethod
+    def realize_str(plain_str: (str, List[str])) -> str:
+        return f'{plain_str[0]}\n' + "\n" + ("\n".join(plain_str[1]))
+
+    @staticmethod
+    def create_json_file_for_Geneea(plain_str: (str, List[str]), file_path: str):
+        data = {}
+        data['templates'] = []
+        '''
+        data['templates'].append({
+            "id": "tmpl-1",
+            "name": "title template",
+            "body": plain_str[0]
+        })
+        '''
+
+        toprint = plain_str[0] + ' '+ ' '.join(plain_str[1])
+        data['templates'].append({
+            "id": "tmpl-2",
+            "name": "body template",
+            "body": toprint
+        })
+
+        data['data'] = {}
+        with open(file_path, 'w') as output_json:
+            json.dump(data, output_json)
+
+    @staticmethod
+    def realize_article(plain_str: (str, List[str])) -> str:
+        file_path = r'C:\Users\danra\Skola\MFF\RP\SP_SportArticleGenerator\geneea_input.json'
+        Realizer.create_json_file_for_Geneea(plain_str, file_path)
+
+        with open(file_path) as json_file:
+            output_geneea: dict = Realizer.call_Geneea(json.load(json_file))
+
+        return output_geneea['article']
+
+    @staticmethod
+    def call_Geneea(json_file: dict):
+        url = 'https://generator.geneea.com/generate'
+        headers = {
+            'content-type': 'application/json',
+            # 'Authorization': 'user_key <your user key>'
+            'Authorization': os.getenv('GENJA_API_KEY')
+        }
+        return requests.post(url, json=json_file, headers=headers).json()
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# TESTING ALL INPUTS
+def test_inputs(directory: str):
+    files_to_fix = get_files_to_fix(directory)
+    if len(files_to_fix) > 50:
+        print(f"Nefunguje toho hodně {len(files_to_fix)}")
+        print(files_to_fix[0])
+    elif len(files_to_fix) > 20:
+        print("Nefunguje toho středně")
+        print(files_to_fix[0])
+    else:
+        print(files_to_fix)
+
+
+def get_files_to_fix(directory: str) -> List[str]:
+    files_to_fix = []
+    for filename in os.listdir(directory):
+        file = os.path.join(directory, filename)
+        try:
+            generate_article(file, print_output=False)
+        except:
+            files_to_fix.append(file)
+    return files_to_fix
+
+
+def get_directory(filename:str) -> str:
+    return os.path.dirname(filename)
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# GENERATE ARTICLE FROM JSON
+def generate_article(filename: str, print_output: bool):
+    match_data: MatchData = DataInitializer.init_match_data(filename)
+    print(f'{match_data} \n\n ' + '_' * 70)
+
+    doc_plan: DocumentPlan = DocumentPlanner.plan_document(match_data)
+    #print(f'{doc_plan} \n\n ' + '_' * 70)
+
+    plain_str: (str, List[str]) = Lexicalizer.lexicalize(doc_plan, match_data)
+
+    text: str = Realizer.realize_str(plain_str)
+
+    if print_output:
+        print(f'{match_data} \n\n ' + '_' * 70)
+        print(f'{doc_plan} \n\n ' + '_' * 70)
+        print(f'{plain_str} \n\n ' + '_' * 70)
+        print(f'{text} \n\n ' + '_' * 70)
+
+    # calling Geneea rest API
+    article = Realizer.realize_article(plain_str)
+    print(article)
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# MAIN
+def main(args):
+    if args.test:
+        test_inputs(get_directory(args.match_data))
+    else:
+        generate_article(args.match_data, print_output=True)
+
+
+if __name__ == "__main__":
+    args_ = parser.parse_args([] if "__file__" not in globals() else None)
+    main(args_)
+
+'''
 # --------------------------------------------------------------------------------------------------------------------
 # Lexicalization of document plan
 
@@ -807,124 +1203,4 @@ class Lexicalizer:
 
         return tmpl_str
 
-
-# --------------------------------------------------------------------------------------------------------------------
-# Realization of str from Lexicalizer
-
-class Realizer:
-    @staticmethod
-    def realize_str(plain_str: (str, List[str])) -> str:
-        return f'{plain_str[0]}\n' + "\n" + ("\n".join(plain_str[1]))
-
-    @staticmethod
-    def create_json_file_for_Geneea(plain_str: (str, List[str]), file_path: str):
-        data = {}
-        data['templates'] = []
-        '''
-        data['templates'].append({
-            "id": "tmpl-1",
-            "name": "title template",
-            "body": plain_str[0]
-        })
-        '''
-
-        toprint = plain_str[0] + ' '+ ' '.join(plain_str[1])
-        data['templates'].append({
-            "id": "tmpl-2",
-            "name": "body template",
-            "body": toprint
-        })
-
-        data['data'] = {}
-        with open(file_path, 'w') as output_json:
-            json.dump(data, output_json)
-
-    @staticmethod
-    def realize_article(plain_str: (str, List[str])) -> str:
-        file_path = r'C:\Users\danra\Skola\MFF\RP\SP_SportArticleGenerator\geneea_input.json'
-        Realizer.create_json_file_for_Geneea(plain_str, file_path)
-
-        with open(file_path) as json_file:
-            output_geneea: dict = Realizer.call_Geneea(json.load(json_file))
-
-        return output_geneea['article']
-
-    @staticmethod
-    def call_Geneea(json_file: dict):
-        url = 'https://generator.geneea.com/generate'
-        headers = {
-            'content-type': 'application/json',
-            # 'Authorization': 'user_key <your user key>'
-            'Authorization': os.getenv('GENJA_API_KEY')
-        }
-        return requests.post(url, json=json_file, headers=headers).json()
-
-
-# --------------------------------------------------------------------------------------------------------------------
-# TESTING ALL INPUTS
-def test_inputs(directory: str):
-    files_to_fix = get_files_to_fix(directory)
-    if len(files_to_fix) > 50:
-        print(f"Nefunguje toho hodně {len(files_to_fix)}")
-        print(files_to_fix[0])
-    elif len(files_to_fix) > 20:
-        print("Nefunguje toho středně")
-        print(files_to_fix[0])
-    else:
-        print(files_to_fix)
-
-
-def get_files_to_fix(directory: str) -> List[str]:
-    files_to_fix = []
-    for filename in os.listdir(directory):
-        file = os.path.join(directory, filename)
-        try:
-            generate_article(file, print_output=False)
-        except:
-            files_to_fix.append(file)
-    return files_to_fix
-
-
-def get_directory(filename:str) -> str:
-    return os.path.dirname(filename)
-
-
-# --------------------------------------------------------------------------------------------------------------------
-# GENERATE ARTICLE FROM JSON
-def generate_article(filename: str, print_output: bool):
-    match_data: MatchData = DataInitializer.init_match_data(filename)
-    print(f'{match_data} \n\n ' + '_' * 70)
-
-    doc_plan: DocumentPlan = DocumentPlanner.plan_document(match_data)
-    #print(f'{doc_plan} \n\n ' + '_' * 70)
-
-    plain_str: (str, List[str]) = Lexicalizer.lexicalize(doc_plan, match_data)
-
-    text: str = Realizer.realize_str(plain_str)
-
-    if print_output:
-        print(f'{match_data} \n\n ' + '_' * 70)
-        print(f'{doc_plan} \n\n ' + '_' * 70)
-        print(f'{plain_str} \n\n ' + '_' * 70)
-        print(f'{text} \n\n ' + '_' * 70)
-
-    # calling Geneea rest API
-    article = Realizer.realize_article(plain_str)
-    print(article)
-
-
-
-
-
-# --------------------------------------------------------------------------------------------------------------------
-# MAIN
-def main(args):
-    if args.test:
-        test_inputs(get_directory(args.match_data))
-    else:
-        generate_article(args.match_data, print_output=True)
-
-
-if __name__ == "__main__":
-    args_ = parser.parse_args([] if "__file__" not in globals() else None)
-    main(args_)
+'''
