@@ -3,11 +3,12 @@
 # libraries
 import argparse
 import json
-from random import Random
+#from random import Random
+import random
 import os
 import requests
 from enum import Enum
-from typing import List, NamedTuple, Dict
+from typing import List, Tuple, Dict, Union
 from string import Template as Tmpl
 from dataclasses import dataclass
 from copy import deepcopy
@@ -15,14 +16,12 @@ from copy import deepcopy
 
 # handling arguments
 parser = argparse.ArgumentParser()
-parser.add_argument("--match_data", default="data/livesport_matches/0Ao9H20P.json", type=str,
-                    help="JSON file with match data")
+parser.add_argument("--match_data", default="0Ao9H20P.json", type=str, help="JSON file with match data")
 parser.add_argument("--test", default=False, type=bool, help="Testing for errors in each match")
 
 
 # --------------------------------------------------------------------------------------------------------------------
-# General Classes
-
+# Class with all Enum values
 class Types:
     class Result(Enum):
         # always in home's team perspective
@@ -41,14 +40,14 @@ class Types:
         SUBSTITUTION = 3
 
     class Card(Enum):
-        YELLOW = 0,
-        RED_AUTO = 1,
+        YELLOW = 0
+        RED_AUTO = 1
         RED_INSTANT = 2
 
     class Goal(Enum):
-        PENALTY = 0,
-        ASSISTANCE = 1,
-        SOLO_PLAY = 2,
+        PENALTY = 0
+        ASSISTANCE = 1
+        SOLO_PLAY = 2
         OWN_GOAL = 3
 
     class Message(Enum):
@@ -59,38 +58,40 @@ class Types:
         RESULT = 4
 
     class MessageSubtype(Enum):
-        WIN = 0,
-        DRAW = 1,
+        WIN = 0
+        DRAW = 1
         LOSS = 2
-        RED_INSTANT = 3,
-        RED_AUTO = 4,
-        YELLOW = 5,
-        ASSISTANCE = 6,
-        PENALTY = 7,
-        SOLO_PLAY = 8,
+        RED_INSTANT = 3
+        RED_AUTO = 4
+        YELLOW = 5
+        ASSISTANCE = 6
+        PENALTY = 7
+        SOLO_PLAY = 8
         OWN_GOAL = 9
 
     class Morph:
         class Case(Enum):
-            Nom = 1,
-            Gen = 2,
-            Dat = 3,
-            Acc = 4,
-            Vok = 5,
-            Loc = 6,
+            Nom = 1
+            Gen = 2
+            Dat = 3
+            Acc = 4
+            Vok = 5
+            Loc = 6
             Ins = 7
 
         class Tense(Enum):
-            Past = 0,
-            Pres = 1,
+            Past = 0
+            Pres = 1
             Fut = 2
 
     class Constituent(Enum):
-        ENTITY = 0,
-        VERB = 1,
+        ENTITY = 0
+        VERB = 1
         WORD = 2
 
 
+# --------------------------------------------------------------------------------------------------------------------
+# Data Initialization
 
 @dataclass(frozen=True)
 class Score:
@@ -170,6 +171,9 @@ class Player:
 
     def get_last_name(self):
         return self.full_name.split()[0]
+
+    # def get_position(self):
+    # utocnik /obrance ...
 
     def __str__(self):
         return f"({self.full_name}, {self.number})"
@@ -288,9 +292,6 @@ class MatchData:
                f"\n\t-> team away lineup: " + ",".join(map(str, self.team_away.lineup)) + '\n' + \
                f"INCIDENTS\n\t" + "\n\t".join(map(str, self.incidents))
 
-
-# --------------------------------------------------------------------------------------------------------------------
-# Data Initialization
 
 # class handing conversion from JSON to MatchData class
 class DataInitializer:
@@ -443,9 +444,7 @@ class DataInitializer:
                 participant_in_id = aux_incident[0]['participant']['id']
                 participant_in = _get_participant_from_id(team_=team, id_=participant_in_id)
 
-                print(participant_in)
-                print(participant)
-                print('------')
+
                 incidents.append(Incidents.Substitution.create(participant=participant, team=team, time=time,
                                                                participant_in=participant_in))
 
@@ -627,7 +626,7 @@ class DocumentPlanner:
 
 
 # --------------------------------------------------------------------------------------------------------------------
-# New Template Scheme **
+# Lexicalization
 
 class MorphParams:
     case: Types.Morph.Case
@@ -636,26 +635,55 @@ class MorphParams:
     agr: None
 
     def __init__(self, string_id: str):
-        params = MorphParams.getMorphParams(string_id)
+        params = MorphParams.get_morph_params(string_id)
         self.case = params[0]
         self.tense = params[1]
         self.ref = params[2]
         self.agr = params[3]
 
     @staticmethod
-    def getMorphParams(string_id: str) -> (Types.Morph.Case, Types.Morph.Tense, str, str):
-        [case_id, tense_id, ref_id, agr_id] = string_id.split('-')
+    def get_morph_params(string_id: str) -> (Types.Morph.Case, Types.Morph.Tense, str, str):
+        if string_id == '':
+            return None, None, None, None
+        else:
+            [case_id, tense_id, ref_id, agr_id] = string_id.split('-')
 
-        case = None if case_id == "." else Types.Morph.Case.value = int(case_id)
-        tense = None if tense_id == "." else Types.Morph.Tense.value = int(tense_id)
-        ref = None if ref_id == "." else ref_id
-        agr = None if agr_id == "." else agr_id
+            case = None if case_id == "." else Types.Morph.Case(int(case_id))
+            tense = None if tense_id == "." else Types.Morph.Tense(int(tense_id))
+            ref = None if ref_id == "." else ref_id
+            agr = None if agr_id == "." else agr_id
 
-        return case, tense, ref, agr
+            return case, tense, ref, agr
 
-@dataclass(frozen=True)
-class ConstituentTemplates:
-    templates: Dict[str, str]
+    def apply_morph_params_to_string(self, constituent: str) -> str:
+        header = '{{' + f'\'{constituent}\'|morph('
+
+        mp: List[str] = []
+        all_none = True
+
+        if self.case is not None:
+            mp.append(f'\'Case={MorphParams.to_valid_form(self.case.name)}\'')
+            all_none = False
+
+        if self.tense is not None:
+            mp.append(f'\'Tense={MorphParams.to_valid_form(self.tense.name)}\'')
+            all_none = False
+
+        if self.ref is not None:
+            mp.append(f'ref={self.ref}')
+            all_none = False
+
+        if self.agr is not None:
+            mp.append(f'ref={self.agr}')
+            all_none = False
+
+        body = ", ".join(mp)
+
+        return constituent if all_none else header + body + ')}}'
+
+    @staticmethod
+    def to_valid_form(s: str) -> str:
+        return s.lower().capitalize()
 
 
 class Template:
@@ -663,24 +691,162 @@ class Template:
     msg: Message
     morph_params: MorphParams
     data: None
-    string: None
+    string: str
 
     def __init__(self, id: str, msg: Message, morph_params: str, data, string):
         self.id = id
         self.msg = msg
-        self.morph_params = None if morph_params else MorphParams(morph_params)
+        self.morph_params = MorphParams(morph_params)
         self.data = data
         self.string = string
 
     def lexicalize(self):
-        # TO DO ->
-        # 1: z idecka a dat vyberu string pro vetny clen
-        # 2: clen upravim podle morph_params pro geneeu ->  dosadim do stringu
+        constituent_type = self.id.split('-')[0]
+        possibilities: List[Tuple[str, str]] = []
+
+        if constituent_type == 'e':  # ENTITY
+            possibilities = Template.get_string_poss_entity(self)
+        elif constituent_type == 'w':  # WORD
+            word_type = self.id.split('-')[1]
+            possibilities = Template.get_string_poss_word(word_type)
+        elif constituent_type == 'v':  # VERB
+            verb_type = self.id.split('-')[1]
+            possibilities = Template.get_string_poss_verb(verb_type)
+
+        (new_id, new_string) = Template.get_random_poss(possibilities)
+
+        self.id = new_id
+        self.string = new_string
+
+    def get_string_poss_entity(self) -> List[Tuple[str, str]]:
+        def init_time_templates():
+            time: Time = self.data
+            if time.added != 0:  #
+                if time.base == 45:  # first half
+                    templates.append(('e-time-1', f"v {time.added}. minutě nastavení prvního poločasu"))
+                    # templates.append(('e-time-2', f"{time.added} minuty po začátku nastaveného času prvního poločasu"))
+                else:  # second half
+                    templates.append(('e-time-1', f"v {time.added}. minutě nastavení druhého poločasu"))
+                    # templates.append(('e-time-2', f"{time.added} minuty po začátku nastaveného času druhého poločasu"))
+            else:
+                templates.append(('e-time-1', f"v {time.base}. minutě"))
+                # templates.append(('e-time-2', f"{time.base} minuty po začátku"))
+
+        # ToDo -> zaloznik/utocnik/obrance
+        def init_player_templates():
+            player: Player = self.data
+            templates.append(('e-player-1', player.full_name))
+            templates.append(('e-player-2', player.get_last_name()))
+            templates.append(('e-player-3', f"hráč s číslem {player.number}"))
+
+        def init_team_templates():
+            team: Team = self.data
+            templates.append(('e-team-1', team.name))
+
+        def init_score_templates():
+            score: Score = self.data
+            templates.append(('e-score-1', f"{score.goals_home}:{score.goals_away}"))
+
+        templates: List[(str, str)] = []
+
+        ent = self.id.split('-')[1]
+        if ent == 'time':
+            init_time_templates()
+        elif ent == 'player':
+            init_player_templates()
+        elif ent == 'team':
+            init_team_templates()
+        elif ent == 'score':
+            init_score_templates()
+        else:
+            print("Type Unknown")
+
+        return templates
+
+    @staticmethod
+    def get_string_poss_word(word_type: str) -> List[Tuple[str, str]]:
+        def init_word_templates():
+            # goal
+            templates.append(('w-goal-1', 'gól'))
+            templates.append(('w-goal-2', 'branka'))
+
+            # assistance
+            templates.append(('w-assistance-1', 'asistence'))
+            templates.append(('w-assistance-2', 'nahrávka'))
+
+            # penalty
+            templates.append(('w-penalty-1', 'penalta'))
+            templates.append(('w-penalty-2', 'pokutový kop'))
+
+            # own goal
+            templates.append(('w-own_goal-1', 'vlastňák'))
+            templates.append(('w-own_goal-2', 'vlastní gól'))
+
+            # yellow card
+            templates.append(('w-yellowcard-1', 'žlutá'))
+            templates.append(('w-yellowcard-2', 'žlutá karta'))
+
+            # red card
+            templates.append(('w-redcard-1', 'červená'))
+            templates.append(('w-redcard-2', 'červená karta'))
+
+        templates: List[(str, str)] = []
+        init_word_templates()
+        return [t for t in templates if t[0].split('-')[1] == word_type]
+
+    @staticmethod
+    def get_string_poss_verb(verb_type: str) -> List[Tuple[str, str]]:
+        def init_verb_templates():
+            # result
+            templates.append(('v-win-1', 'porazit'))
+            templates.append(('v-win-2', 'rozdrtit'))
+            templates.append(('v-win-3', 'deklasovat'))
+            templates.append(('v-draw-1', 'remizovat'))
+            templates.append(('v-loss-1', 'prohrát'))
+
+            # goal
+            templates.append(('v-goal-1', 'vstřelit'))
+            templates.append(('v-goal-2', 'vsítit'))
+            templates.append(('v-goal-3', 'dát'))
+
+            # score change
+
+            templates.append(('v-score_change-1', 'změnil'))
+            templates.append(('v-score_change-2', 'upravil'))
+
+            # penalty
+
+            templates.append(('v-penalty-1', 'proměnit'))
+            templates.append(('v-penalty-2', 'dát'))
+
+            # failed penalty
+            templates.append(('v-failed_penalty-1', 'zpackat'))
+            templates.append(('v-failed_penalty-2', 'neproměnit'))
+            templates.append(('v-failed_penalty-3', 'nedat'))
+
+            # substitution
+            templates.append(('v-substitution-1', 'střídat'))
+            templates.append(('v-substitution-2', 'vystřídat'))
+
+            # card
+            templates.append(('v-card-1', 'dostat'))
+            templates.append(('v-card-2', 'obdržet'))
+
+        templates: List[(str, str)] = []
+        init_verb_templates()
+        return [t for t in templates if t[0].split('-')[1] == verb_type]
+
+    @staticmethod
+    def get_random_poss(possibilities: List[Tuple[str, str]]) -> Tuple[str, str]:
+        return random.choice(possibilities)
+
+    def transform_string_for_geneea(self):
+        self.string = self.morph_params.apply_morph_params_to_string(self.string)
 
 
 class Sentence:
     id: str
-    constituents: List[str, Template]
+    constituents: List[Union[str, Template]]
 
     def __init__(self, msg: Message):
         s = Sentence.get_sentence(msg)
@@ -688,51 +854,53 @@ class Sentence:
         self.constituents = s[1]
 
     @staticmethod
-    def get_sentence(msg: Message) -> (str, List[str,Template]):
-        def get_sentence_result(msg: Messages.Result) -> (str, List[str,Template]):
+    def get_sentence(m: Message) -> (str, List[Union[str, Template]]):
+        def get_sentence_result(msg: Messages.Result) -> (str, List[Union[str, Template]]):
             # id type: result = 'r'
             # id subtypes: win = 'w' / draw = 'd' / loss = 'l'
 
-            sentences = List[(str, List[str,Template])]
+            sentences: List[Tuple[str, List[Union[str, Template]]]] = []
+
             if msg.score.result == Types.Result.WIN:
-                sentences.append(('s_r_w_1',[
-                    Template(id='e-team'  , msg=msg, morph_params='1-.-1-.', data=msg.team_home , string=None),
-                    Template(id='v-win'   , msg=msg, morph_params='.-0-.-1', data=None          , string=None),
-                    Template(id='e-team"' , msg=msg, morph_params='4-.-.-.', data=msg.team_away , string=None),
-                    Template(id='e-score', msg=msg, morph_params='4-.-.-.', data=msg.score, string=None),
+                sentences.append(('s_r_w_1', [
+                    Template(id='e-team', msg=msg, morph_params='1-.-1-.', data=msg.team_home, string=None),
+                    Template(id='v-win', msg=msg, morph_params='.-0-.-1', data=None, string=None),
+                    Template(id='e-team', msg=msg, morph_params='4-.-.-.', data=msg.team_away, string=None),
+                    Template(id='e-score', msg=msg, morph_params='', data=msg.score, string=None)
                 ]))
+
             elif msg.score.result == Types.Result.DRAW:
                 sentences.append(('s_r_d_1', [
-                    Template(id='e-team', msg=msg, morph_params='1-.-1-.', data=msg.team_home , string=None),
-                    Template(id='v-draw', msg=msg, morph_params='.-0-.-1', data=None          , string=None),
+                    Template(id='e-team', msg=msg, morph_params='1-.-1-.', data=msg.team_home, string=None),
+                    Template(id='v-draw', msg=msg, morph_params='.-0-.-1', data=None, string=None),
                     Template(id='e-team', msg=msg, morph_params='7-.-.-.', data=msg.team_away , string=None),
-                    Template(id='e-score', msg=msg, morph_params='4-.-.-.', data=msg.score, string=None),
+                    Template(id='e-score', msg=msg, morph_params='', data=msg.score, string=None),
 
                 ]))
-            else: # msg.score.result == Types.Result.LOSS:
+            else:  # msg.score.result == Types.Result.LOSS:
                 sentences.append(('s_r_l_1', [
                     Template(id='e-team', msg=msg, morph_params='1-.-1-.', data=msg.team_home , string=None),
-                    Template(id='v-loss', msg=msg, morph_params='.-0-.-1', data=None          , string=None),
-                    Template(id='e-team', msg=msg, morph_params='4-.-.-.', data=msg.team_away , string=None),
-                    Template(id='e-score', msg=msg, morph_params='4-.-.-.', data=msg.score     , string=None),
+                    Template(id='v-loss', msg=msg, morph_params='.-0-.-1', data=None, string=None),
+                    Template(id='e-team', msg=msg, morph_params='4-.-.-.', data=msg.team_away, string=None),
+                    Template(id='e-score', msg=msg, morph_params='', data=msg.score, string=None),
                 ]))
 
-            r = Random()
-            r.seed(10)
-            return r.choice(sentences)
+            return random.choice(sentences)
 
-        def get_sentence_goal(msg: Messages.Goal) -> (str, List[str,Template]):
+        def get_sentence_goal(msg: Messages.Goal) -> (str, List[Union[str, Template]]):
             # id type: goal = 'r'
             # id subtypes: solo play = 's' / own goal = 'o' / penalty = 'p' / assistance = 'a'
 
-            sentences = List[(str, List[str,Template])]
+            sentences: List[(str, List[Union[str, Template]])] = []
             if msg.goal_type == Types.Goal.SOLO_PLAY:
                 sentences.append(('s_g_s_1', [
-                    Template(id='e-time'  , msg=msg, morph_params= ''      , data=msg.time          , string=None),
+
+                    Template(id='e-time'  , msg=msg, morph_params='', data=msg.time          , string=None),
                     Template(id='v-goal'  , msg=msg, morph_params='.-0-.-.', data=None              , string=None),
                     Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant   , string=None),
                     Template(id='w-goal'  , msg=msg, morph_params='4-.-.-.', data=None              , string=None),
                 ]))
+
                 sentences.append(('s_g_s_2', [
                     Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
                     Template(id='v-goal', msg=msg, morph_params='.-0-.-.', data=None, string=None),
@@ -740,16 +908,17 @@ class Sentence:
                     Template(id='w-goal', msg=msg, morph_params='4-.-.-.', data=None, string=None),
                     "a",
                     Template(id='v-score_change', msg=msg, morph_params='', data=None, string=None),
-                    Template(id='e-score', msg=msg, morph_params='4-.-.-.', data=msg.current_score, string=None),
+                    "na",
+                    Template(id='e-score', msg=msg, morph_params='', data=msg.current_score, string=None)
                 ]))
 
-            elif msg.goal_type == Types.Goal.ASSITANCE:
+            elif msg.goal_type == Types.Goal.ASSISTANCE:
                 sentences.append(('s_g_a_1', [
                     Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
                     Template(id='v-goal', msg=msg, morph_params='.-0-.-.', data=None, string=None),
                     Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant, string=None),
                     "po",
-                    Template(id='w-assistance', msg=msg, morph_params='6-.-.-', data=None, string=None),
+                    Template(id='w-assistance', msg=msg, morph_params='6-.-.-.', data=None, string=None),
                     Template(id='e-player', msg=msg, morph_params='3-.-.-.', data=msg.assistance, string=None),
                     Template(id='w-goal', msg=msg, morph_params='4-.-.-.', data=None, string=None)
                 ]))
@@ -758,49 +927,44 @@ class Sentence:
                     Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
                     Template(id='v-penalty', msg=msg, morph_params='.-0-.-.', data=None, string=None),
                     Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant, string=None),
-                    Template(id='w-penalty', msg=msg, morph_params='4-.-.-.', data=None, string=None),
-                    ""
+                    Template(id='w-penalty', msg=msg, morph_params='4-.-.-.', data=None, string=None)
                 ]))
             elif msg.goal_type == Types.Goal.OWN_GOAL:
                 sentences.append(('s_g_p_1', [
                     Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
                     "si dal",
                     Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant, string=None),
-                    Template(id='w-own_goal', msg=msg, morph_params='4-.-.-.', data=None, string=None),
+                    Template(id='w-own_goal', msg=msg, morph_params='4-.-.-.', data=None, string=None)
                 ]))
 
-            r = Random()
-            r.seed(10)
-            return r.choice(sentences)
+            return random.choice(sentences)
 
-        def get_sentence_substitution(msg: Messages.Substitution) -> (str, List[str,Template]):
+        def get_sentence_substitution(msg: Messages.Substitution) -> (str, List[Union[str, Template]]):
             # id type: substitution = 's'
 
-            sentences = List[(str, List[str,Template])]
+            sentences : List[(str, List[Union[str, Template]])] = []
 
             sentences.append(('s_s_1', [
                 Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
                 Template(id='v-substitution', msg=msg, morph_params='.-0-.-.', data=None, string=None),
                 Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant_in, string=None),
                 "za",
-                Template(id='e-player', msg=msg, morph_params='-.-.-.', data=msg.participant_out, string=None),
+                Template(id='e-player', msg=msg, morph_params='4-.-.-.', data=msg.participant_out, string=None),
             ]))
             sentences.append(('s_s_2', [
                 Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
                 Template(id='v-substitution', msg=msg, morph_params='.-0-.-.', data=None, string=None),
                 Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant_in, string=None),
-                Template(id='e-player', msg=msg, morph_params='4.-.-.', data=msg.participant_out, string=None),
+                Template(id='e-player', msg=msg, morph_params='4-.-.-.', data=msg.participant_out, string=None),
             ]))
 
-            r = Random()
-            r.seed(10)
-            return r.choice(sentences)
+            return random.choice(sentences)
 
-        def get_sentence_card(msg: Messages.Card) -> (str, List[str,Template]):
+        def get_sentence_card(msg: Messages.Card) -> (str, List[Union[str, Template]]):
             # id type: card = 'c'
             # id subtypes: red_auto = 'a' / red_instant = 'r' / yellow = 'y'
 
-            sentences = List[(str, List[str, Template])]
+            sentences: List[(str, List[Union[str, Template]])] = []
             if msg.card_type == Types.Card.RED_AUTO:
                 sentences.append(('s_g_s_1', [
                     Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
@@ -825,50 +989,67 @@ class Sentence:
                     Template(id='w-yellowcard', msg=msg, morph_params='4-.-.-.', data=None, string=None)
                 ]))
 
-            r = Random()
-            r.seed(10)
-            return r.choice(sentences)
+            return random.choice(sentences)
 
-        def get_sentence_missed_penalty(msg: Messages.MissedPenalty) -> (str, List[str,Template]):
+        def get_sentence_missed_penalty(msg: Messages.MissedPenalty) -> (str, List[Union[str,Template]]):
             # id type: missed penalty = 'm'
-
-            sentences = List[(str, List[str,Template])]
+            sentences: List[(str, List[Union[str,Template]])] = []
 
             sentences.append(('s_m_1', [
                 Template(id='e-time', msg=msg, morph_params='', data=msg.time, string=None),
                 Template(id='e-player', msg=msg, morph_params='1-.-.-.', data=msg.participant_in, string=None),
                 Template(id='v-failed_penalty', msg=msg, morph_params='.-0-.-.', data=msg.time, string=None),
-                Template(id='w-penalty', msg=msg, morph_params='-.-.-.', data=msg.participant_out, string=None)
+                Template(id='w-penalty', msg=msg, morph_params='', data=msg.participant_out, string=None)
             ]))
 
+            return random.choice(sentences)
 
-            r = Random()
-            r.seed(10)
-            return r.choice(sentences)
-
-        if msg.type == Messages.Result:
-            return get_sentence_result(msg)
-        elif msg.type == Messages.Goal:
-            return get_sentence_goal(msg)
-        elif msg.type == Messages.Substitution:
-            return get_sentence_substitution(msg)
-        elif msg.type == Messages.Card:
-            return get_sentence_card(msg)
-        elif msg.type == Messages.MissedPenalty:
-            return get_sentence_missed_penalty(msg)
+        if type(m) is Messages.Result:
+            return get_sentence_result(m)
+        elif type(m) is Messages.Goal:
+            return get_sentence_goal(m)
+        elif type(m) is Messages.Substitution:
+            return get_sentence_substitution(m)
+        elif type(m) is Messages.Card:
+            return get_sentence_card(m)
+        elif type(m) is Messages.MissedPenalty:
+            return get_sentence_missed_penalty(m)
         else:
             print("Wrong types")
-            return None
 
     def lexicalize(self):
         for tmp in self.constituents:
-            if tmp is Template:
+            if type(tmp) is Template:
                 tmp.lexicalize()
+
+    def transform_strings_for_geneea(self):
+        for tmp in self.constituents:
+            if type(tmp) is Template:
+                tmp.transform_string_for_geneea()
+
+    def get_string(self):
+        const: List[str] = []
+        for c in self.constituents:
+            if type(c) is Template:
+                const.append(c.string)
+            else:
+                const.append(c)
+
+        # first letter is upper case
+        k = 0
+        while not const[0][k].isalpha() and k != len(const[0]):
+            k += 1
+        const[0] = const[0][:k] + const[0][k].upper() + const[0][k+1:]
+
+        return ' '.join(const) + '.'
+
 
 class Lexicalizer:
 
     @staticmethod
     def lexicalize(doc_plan: DocumentPlan, match_data: MatchData) -> (str, List[str]):
+
+        random.seed(10)  # setting the seed for whole program
 
         title = Lexicalizer._lexicalize_message(doc_plan.title)
         body = [Lexicalizer._lexicalize_message(msg) for msg in doc_plan.body]
@@ -879,6 +1060,7 @@ class Lexicalizer:
         sentence = Sentence(msg)
         sentence.lexicalize()
         # sentence.alternate()
+        sentence.transform_strings_for_geneea()
         return sentence.get_string()
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -891,7 +1073,7 @@ class Realizer:
         return f'{plain_str[0]}\n' + "\n" + ("\n".join(plain_str[1]))
 
     @staticmethod
-    def create_json_file_for_Geneea(plain_str: (str, List[str]), file_path: str):
+    def create_json_file_for_geneea(plain_str: (str, List[str]), file_path: str):
         data = {}
         data['templates'] = []
         '''
@@ -902,11 +1084,11 @@ class Realizer:
         })
         '''
 
-        toprint = plain_str[0] + ' '+ ' '.join(plain_str[1])
+        to_print = plain_str[0] + ' '+ ' '.join(plain_str[1])
         data['templates'].append({
             "id": "tmpl-2",
             "name": "body template",
-            "body": toprint
+            "body": to_print
         })
 
         data['data'] = {}
@@ -915,20 +1097,19 @@ class Realizer:
 
     @staticmethod
     def realize_article(plain_str: (str, List[str])) -> str:
-        file_path = r'C:\Users\danra\Skola\MFF\RP\SP_SportArticleGenerator\geneea_input.json'
-        Realizer.create_json_file_for_Geneea(plain_str, file_path)
+        file_path = r'C:\Users\Dan\MFF\RocProjekt\SP_FootballArticle\geneea_input.json'
+        Realizer.create_json_file_for_geneea(plain_str, file_path)
 
         with open(file_path) as json_file:
-            output_geneea: dict = Realizer.call_Geneea(json.load(json_file))
+            output_geneea: dict = Realizer.call_geneea(json.load(json_file))
 
         return output_geneea['article']
 
     @staticmethod
-    def call_Geneea(json_file: dict):
+    def call_geneea(json_file: dict):
         url = 'https://generator.geneea.com/generate'
         headers = {
             'content-type': 'application/json',
-            # 'Authorization': 'user_key <your user key>'
             'Authorization': os.getenv('GENJA_API_KEY')
         }
         return requests.post(url, json=json_file, headers=headers).json()
@@ -967,12 +1148,13 @@ def get_directory(filename:str) -> str:
 # GENERATE ARTICLE FROM JSON
 def generate_article(filename: str, print_output: bool):
     match_data: MatchData = DataInitializer.init_match_data(filename)
-    print(f'{match_data} \n\n ' + '_' * 70)
+    # print(f'{match_data} \n\n ' + '_' * 70)
 
     doc_plan: DocumentPlan = DocumentPlanner.plan_document(match_data)
-    #print(f'{doc_plan} \n\n ' + '_' * 70)
+    # print(f'{doc_plan} \n\n ' + '_' * 70)
 
     plain_str: (str, List[str]) = Lexicalizer.lexicalize(doc_plan, match_data)
+    print(f'{plain_str} \n\n ' + '_' * 70)
 
     text: str = Realizer.realize_str(plain_str)
 
@@ -993,214 +1175,9 @@ def main(args):
     if args.test:
         test_inputs(get_directory(args.match_data))
     else:
-        generate_article(args.match_data, print_output=True)
+        generate_article(args.match_data, print_output=False)
 
 
 if __name__ == "__main__":
     args_ = parser.parse_args([] if "__file__" not in globals() else None)
     main(args_)
-
-'''
-# --------------------------------------------------------------------------------------------------------------------
-# Lexicalization of document plan
-
-
-class Template(NamedTuple):
-    type: Types.Message
-    subtype: Types.MessageSubtype
-    tmpl: Tmpl
-
-    @staticmethod
-    def create(type_: Types.Message, subtype: Types.MessageSubtype, tmpl: Tmpl):
-        return Template(type=type_, subtype=subtype, tmpl=tmpl)
-
-
-@dataclass(frozen=True)
-class TemplateHandler:
-    templates: List[Template]
-
-    @staticmethod
-    def create():
-        return TemplateHandler(TemplateHandler._init_templates())
-
-    @staticmethod
-    def _init_templates() -> List[Template]:
-
-        def _init_templates_result():
-            # subtypes possible: WIN, DRAW, LOSE  (result from home team perspective)
-            type_ = Types.Message.RESULT
-
-            # subtype: WIN   -> templates for win of home team
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.WIN,
-                                              tmpl=Tmpl('{{\'$team_home\'|morph(\'Case=Nom\', ref=1)}} '
-                                                        '{{\'porazit\'|morph(\'Tense=Past\', agr=1)}} '
-                                                        '{{\'$team_away\'|morph(\'Case=Acc\')}} $score.')))
-
-            # subtype: DRAW   -> templates for draw
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.DRAW,
-                                              tmpl=Tmpl('{{\'$team_home\'|morph(\'Case=Nom\', ref=1)}} '
-                                                        '{{\'remizovat\'|morph(\'Tense=Past\', agr=1)}}} s '
-                                                        '{{\'$team_away\'|morph(\'Case=Ins\')}} $score.')))
-
-            # subtype: LOSS  -> templates for loss of home team
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.LOSS,
-                                              tmpl=Tmpl('{{\'$team_home\'|morph(\'Case=Nom\', ref=1)}} '
-                                                        '{{\'prohrát\'|morph(\'Tense=Past\', agr=1)}}} s '
-                                                        '{{\'$team_away\'|morph(\'Case=Ins\')}} $score.')))
-
-        def _init_templates_goal():
-            # subtypes possible: ASSISTANCE, PENALTY, SOLO_GOAL, OWN_GOAL
-            type_ = Types.Message.GOAL
-
-            # subtype: SOLO_GOAL   -> templates for solo goals
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.SOLO_PLAY,
-                                              tmpl=Tmpl('V $time. minutě dal '
-                                                        '$participant_first_name $participant_last_name gól '
-                                                        'a změnil stav na $score.')))
-
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.SOLO_PLAY,
-                                              tmpl=Tmpl('V $time. minutě vsítil '
-                                                        '$participant_first_name $participant_last_name branku '
-                                                        'a změnil stav na $score.')))
-
-            # subtype: ASSISTANCE   -> templates for goals with assistance
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.ASSISTANCE,
-                                              tmpl=Tmpl('V $time. minutě vsítil '
-                                                        '$participant_first_name $participant_last_name branku '
-                                                        'po nahrávce {{\'$assistance_first_name\'|morph(\'Case=Dat\')}}' 
-                                                        ' {{\'$assistance_last_name\'|morph(\'Case=Dat\')}} '
-                                                        'a zvýšil stav na $score.')))
-
-            # subtype: OWN_GOAL  -> templates for penalty goal
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.OWN_GOAL,
-                                              tmpl=Tmpl('V $time. minutě dal '
-                                                        '$participant_first_name $participant_last_name gól '
-                                                        'a změnil stav na $score.')))
-            # subtype: PENALTY   -> templates for penalty goal
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.PENALTY,
-                                              tmpl=Tmpl('V $time. minutě proměnil penaltu '
-                                                        '$participant_first_name $participant_last_name.')))
-
-        def _init_templates_substitution():
-            # subtypes: None
-            type_ = Types.Message.SUBSTITUTION
-            templates_.append(Template.create(type_=type_, subtype=None,
-                                              tmpl=Tmpl('V $time. minutě střídal hráč týmu $team '
-                                                        '$participant_out_first_name $participant_out_last_name za '
-                                                        '{{\'$participant_in_first_name\'|morph(\'Case=Acc\')}} ' 
-                                                        '{{\'$participant_in_last_name\'|morph(\'Case=Acc\')}}.')))
-
-        def _init_templates_card():
-            # subtype: YELLOW_CARD, RED_CARD
-            # substitutions: time, team, participant
-            type_ = Types.Message.CARD
-
-            # templates for red card instant
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.RED_INSTANT,
-                                              tmpl=Tmpl('V $time. minutě dostal hráč týmu $team $participant_first_name'
-                                                        ' $participant_last_name červenou kartu.')))
-
-            # templates for red card auto
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.RED_AUTO,
-                                              tmpl=Tmpl('V $time. minutě dostal hráč týmu $team $participant_first_name'
-                                                        ' $participant_last_name červenou kartu po druhé žluté kartě.')))
-
-            # templates for yellow card
-            templates_.append(Template.create(type_=type_, subtype=Types.MessageSubtype.YELLOW,
-                                              tmpl=Tmpl('V $time. minutě dostal hráč týmu $team $participant_first_name'
-                                                        ' $participant_last_name žlutou kartu.')))
-
-        def _init_templates_missed_penalty():
-            type_ = Types.Message.PENALTY_KICK_MISSED
-            templates_.append(Template.create(type_=type_, subtype=None,
-                                              tmpl=Tmpl('V $time. minutě neproměnil '
-                                                        '$participant_first_name $participant_last_name penaltu.')))
-
-        templates_: List[Template] = []
-
-        # initialize template for every message type
-        _init_templates_result()
-        _init_templates_goal()
-        _init_templates_substitution()
-        _init_templates_card()
-        _init_templates_missed_penalty()
-
-        return templates_
-
-    def get_template(self, type_: Types.Message, subtype_: Types.MessageSubtype) -> Template:
-        # picking valid templates
-        valid_templates_type: List[Template] = [t for t in self.templates if t.type == type_]
-        valid_templates: List[Template] = [t for t in valid_templates_type if ((subtype_ is None and t.subtype is None)
-                                                                               or t.subtype.name == subtype_.name)]
-
-        r = Random()
-        r.seed(10)
-        return r.choice(valid_templates)
-
-
-class Lexicalizer:
-
-    @staticmethod
-    def lexicalize(doc_plan: DocumentPlan, match_data: MatchData) -> (str, List[str]):
-        template_handler = TemplateHandler.create()
-        title = Lexicalizer._lexicalize_message(doc_plan.title, template_handler)
-        body = Lexicalizer._lexicalize_body(doc_plan.body, template_handler)
-        return title, body
-
-    @staticmethod
-    def _lexicalize_body(body: List[Messages], template_handler: TemplateHandler) -> List[str]:
-        return [Lexicalizer._lexicalize_message(msg, template_handler) for msg in body]
-
-    @staticmethod
-    def _lexicalize_message(msg: Messages, template_handler: TemplateHandler) -> str:
-        tmpl_str: str
-
-        # RESULT MSG
-        if type(msg) is Messages.Result:
-            template = deepcopy(template_handler.get_template(type_=Types.Message.RESULT, subtype_=msg.score.result))
-            tmpl_str = template.tmpl.substitute(team_home=msg.team_home.name, team_away=msg.team_away.name,
-                                                score=str(msg.score))
-
-        # GOAL MSG
-        if type(msg) is Messages.Goal:
-            template = deepcopy(template_handler.get_template(type_=Types.Message.GOAL, subtype_=msg.goal_type))
-
-            if msg.goal_type is Types.Goal.ASSISTANCE:
-                tmpl_str = template.tmpl.substitute(time=str(msg.time),
-                                                    participant_first_name=msg.participant.get_first_name(),
-                                                    participant_last_name=msg.participant.get_last_name(),
-                                                    score=str(msg.current_score),
-                                                    assistance_first_name=msg.assistance.get_first_name(),
-                                                    assistance_last_name=msg.assistance.get_last_name())
-            else:
-                tmpl_str = template.tmpl.substitute(time=str(msg.time),
-                                                    participant_first_name=msg.participant.get_first_name(),
-                                                    participant_last_name=msg.participant.get_last_name(),
-                                                    score=str(msg.current_score),)
-
-        # CARD MSG
-        if type(msg) is Messages.Card:
-            template = deepcopy(template_handler.get_template(type_=Types.Message.CARD, subtype_=msg.card_type))
-            tmpl_str = template.tmpl.substitute(time=str(msg.time), team=msg.team.name,
-                                                participant_first_name=msg.participant.get_first_name(),
-                                                participant_last_name=msg.participant.get_last_name())
-
-        # SUBSTITUTION MSG
-        if type(msg) is Messages.Substitution:
-            template = deepcopy(template_handler.get_template(type_=Types.Message.SUBSTITUTION, subtype_=None))
-            tmpl_str = template.tmpl.substitute(time=str(msg.time), team=msg.team.name,
-                                                participant_in_first_name=msg.participant_in.get_first_name(),
-                                                participant_in_last_name=msg.participant_in.get_last_name(),
-                                                participant_out_first_name=msg.participant_out.get_first_name(),
-                                                participant_out_last_name=msg.participant_out.get_last_name())
-
-        # MISSED PENALTY MSG
-        if type(msg) is Messages.MissedPenalty:
-            template = deepcopy(template_handler.get_template(type_=Types.Message.PENALTY_KICK_MISSED, subtype_=None))
-            tmpl_str = template.tmpl.substitute(time=str(msg.time), team=msg.team.name,
-                                                participant_first_name=msg.participant.get_first_name(),
-                                                participant_last_name=msg.participant.get_last_name())
-
-        return tmpl_str
-
-'''
