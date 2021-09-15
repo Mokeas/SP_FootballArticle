@@ -1097,7 +1097,7 @@ class Realizer:
 
     @staticmethod
     def realize_article(plain_str: (str, List[str])) -> str:
-        file_path = r'C:\Users\Dan\MFF\RocProjekt\SP_FootballArticle\geneea_input.json'
+        file_path = r'C:\Users\danra\Skola\MFF\RP\SP_FootballArticle\geneea_input.json'
         Realizer.create_json_file_for_geneea(plain_str, file_path)
 
         with open(file_path) as json_file:
